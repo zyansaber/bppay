@@ -128,6 +128,7 @@ def detect_acdoca_needed_fields(conn: pyodbc.Connection) -> Dict[str, Optional[s
     drcr_col    = pick_first(cols, ["DRCRK", "SHKZG"])
     amt_col     = pick_first(cols, ["HSL", "TSL", "KSL", "WSL"])
     reversal_col= pick_first(cols, ["XREVERSED", "XREVERSAL", "STOKZ", "XREVERSING"])
+    koart_col   = pick_first(cols, ["KOART"])
 
     clear_doc_col  = pick_first(cols, ["AUGBL"])
     clear_date_col = pick_first(cols, ["AUGDT"])
@@ -150,6 +151,7 @@ def detect_acdoca_needed_fields(conn: pyodbc.Connection) -> Dict[str, Optional[s
         drcr_col=drcr_col,
         amt_col=amt_col,
         reversal_col=reversal_col,
+        koart_col=koart_col,
         clear_doc_col=clear_doc_col,
         clear_date_col=clear_date_col,
         due_col=due_col,
@@ -177,6 +179,9 @@ def build_finance_filters(fields: Dict[str, Optional[str]], alias: str, params: 
         cond += f" AND TRIM(COALESCE({alias}.\"{fields['bstat_col']}\", '')) = ''"
     if EXCLUDE_REVERSAL and fields.get("reversal_col"):
         cond += f" AND TRIM(COALESCE({alias}.\"{fields['reversal_col']}\", '')) NOT IN ('X','1')"
+    # 关键：限制为应收应付子分类账行，避免ACDOCA里同一BP在其他总账行重复导致金额倍增
+    if fields.get("koart_col"):
+        cond += f" AND {alias}.\"{fields['koart_col']}\" = 'D'"
     return cond
 
 def build_open_condition(fields: Dict[str, Optional[str]], alias: str = "a") -> Optional[str]:
@@ -234,6 +239,7 @@ def sql_so_bp(conn: pyodbc.Connection) -> Tuple[str, List[Any], Dict[str, Option
 def sql_so_content(conn: pyodbc.Connection) -> Tuple[str, List[Any], Dict[str, Optional[str]]]:
     cols = set(get_table_columns(conn, "VBAK")["COLUMN_NAME"].astype(str).str.upper())
     sel = ['TO_NVARCHAR(vk."VBELN") AS "SO"', 'vk."VKORG" AS "SalesOrg"']
+    if "VKBUR" in cols: sel.append('vk."VKBUR" AS "SalesOffice"')
     if "NETWR" in cols: sel.append('vk."NETWR" AS "SO_NETWR"')
     if "WAERK" in cols: sel.append('vk."WAERK" AS "Currency"')
     if "ERDAT" in cols: sel.append('vk."ERDAT" AS "CreatedDate"')
@@ -538,6 +544,7 @@ def main() -> None:
         "BP_NAME": "业务伙伴名称",
         "SO": "销售订单",
         "SalesOrg": "销售组织",
+        "SalesOffice": "销售办公室",
         "SO_NETWR": "订单净值",
         "Currency": "订单币种",
         "CreatedDate": "订单创建日期",
@@ -561,6 +568,7 @@ def main() -> None:
         "销售订单",
         "底盘号(Chassis Number)",
         "销售组织",
+        "销售办公室",
         "订单类型",
         "订单净值",
         "订单币种",
@@ -608,6 +616,7 @@ def main() -> None:
             "date_to": DATE_TO,
             "note": (
                 "SO视角输出；加入底盘号(SER02+OBJK)与付款方名称(RG Name)。"
+                "ACDOCA金额汇总增加KOART='D'限制，避免同一BP在总账扩展行重复导致应付金额放大。"
                 "为避免同一BP对应多SO导致Excel求和倍增，金额列只在每个BP第一行显示。"
                 "已过滤 BP=0000201371 及 BP以00000031开头。"
             )
