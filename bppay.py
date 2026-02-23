@@ -34,6 +34,8 @@ LEDGER_FILTER = "0L"
 EXCLUDE_PARKED = True
 # 业务要求：reverse invoice 也需要计入，默认不排除冲销/反记账
 EXCLUDE_REVERSAL = False
+# 为避免把“原发票+冲销链路”误判为重复，默认关闭ACDOCA行去重
+ENABLE_ACDOCA_DEDUPE = False
 
 # 可选：按过账日期过滤
 DATE_FROM: Optional[str] = None
@@ -406,7 +408,7 @@ def sql_bp_financial(conn: pyodbc.Connection, fields: Dict[str, Optional[str]]) 
 
     dedupe_partition = build_acdoca_dedupe_partition(fields, alias="a")
 
-    if dedupe_partition:
+    if ENABLE_ACDOCA_DEDUPE and dedupe_partition:
         acdoca_src = f"""
     acdoca_src AS (
         SELECT *
@@ -836,6 +838,7 @@ def main() -> None:
                 "SO视角输出；加入底盘号(SER02+OBJK)与付款方名称(RG Name)。"
                 "ACDOCA金额汇总按DRCR符号汇总(借方正、贷方负)，并增加KOART='D'限制避免放大。"
                 "reverse invoice 已纳入统计（不排除冲销标记）。"
+                "为避免误丢被冲销原单，BP汇总默认不启用ACDOCA行去重。"
                 "新增BP_FIN_DETAIL明细页，逐行展示参与汇总的ACDOCA数据，并标注DUP_CNT/DUP_RN/KEPT_IN_SUM用于排查重复来源。"
                 "新增MERGE_DUP_DIAG页，定位是否由merge键重复造成倍增。"
                 "为避免同一BP对应多SO导致Excel求和倍增，金额列只在每个BP第一行显示。"
